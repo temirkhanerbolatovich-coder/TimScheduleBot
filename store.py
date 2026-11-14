@@ -24,6 +24,34 @@ class Store:
         CREATE TABLE IF NOT EXISTS rates(chat INTEGER, role TEXT, per12 INTEGER, PRIMARY KEY(chat,role));
         CREATE TABLE IF NOT EXISTS shift_defaults(chat INTEGER, title TEXT, start INTEGER, duration INTEGER, PRIMARY KEY(chat,title));
         ''')
+        self.freeze_rates()
+
+    def freeze_rates(self):
+        """Backfill legacy records and undo snapshots once, using current rates."""
+        if self.db.execute("SELECT 1 FROM meta WHERE key='frozen_rates_v1'").fetchone():
+            return
+        with self.db:
+            for row in self.db.execute('SELECT id,chat,data FROM events').fetchall():
+                event = json.loads(row['data'])
+                if self.freeze_event_rate(row['chat'], event):
+                    self.db.execute('UPDATE events SET data=? WHERE id=?', (json.dumps(event), row['id']))
+            for row in self.db.execute('SELECT id,chat,events FROM snapshots').fetchall():
+                entries = json.loads(row['events'])
+                for entry in entries:
+                    event = json.loads(entry[2])
+                    self.freeze_event_rate(row['chat'], event)
+                    entry[2] = json.dumps(event)
+                self.db.execute('UPDATE snapshots SET events=? WHERE id=?', (json.dumps(entries), row['id']))
+
+            self.db.execute("INSERT INTO meta VALUES('frozen_rates_v1', '1')")
+
+    def freeze_event_rate(self, chat, event):
+        from payroll import is_shift
+        rates = self.rates(chat)
+        if is_shift(event) and event.get('role') in rates and 'rate_per12' not in event:
+            event['rate_per12'] = rates[event['role']]
+            return True
+        return False
 
     def register(self, chat):
         with self.db:
@@ -51,6 +79,20 @@ class Store:
         e = {k: v for k, v in e.items() if k != 'id'}
         # Slot identity excludes details/time, so a corrected note updates its existing event.
         key = json.dumps([e['date'], e['weekday'], e['title'].casefold()], ensure_ascii=False)
+        previous = self.get(chat, ident) if ident else None
+        if previous is None:
+            row = self.db.execute('SELECT data FROM events WHERE chat=? AND key=?', (chat, key)).fetchone()
+            previous = json.loads(row['data']) if row else None
+        if previous:
+            if 'role' not in e and previous.get('role'):
+                e['role'] = previous['role']
+            if previous.get('role') == e.get('role') and 'rate_per12' in previous:
+                e['rate_per12'] = previous['rate_per12']
+            else:
+                e.pop('rate_per12', None)
+            if 'status' not in e and previous.get('status'):
+                e['status'] = previous['status']
+        self.freeze_event_rate(chat, e)
         data = json.dumps(e, ensure_ascii=False)
         if ident:
             self.db.execute('UPDATE events SET key=?, data=? WHERE id=? AND chat=?', (key, data, ident, chat))
@@ -126,6 +168,13 @@ class Store:
                 self.snapshot(chat, self.ACTION_LABELS.get(a['type'], a['type']))
             if a['type'] == 'shiftcfg':
                 self.db.execute('INSERT OR REPLACE INTO shift_defaults VALUES(?,?,?,?)', (chat, a['title'], a['start'], a['duration']))
+            elif a['type'] == 'reprice':
+                event = self.get(chat, a['id'])
+                if not event or event.get('role') != a['role']:
+                    raise ValueError('Роль смены изменилась; открой карточку заново')
+                event['rate_per12'] = a['per12']
+                self.db.execute('UPDATE events SET data=? WHERE chat=? AND id=?',
+                                (json.dumps(event), chat, a['id']))
             elif a['type'] == 'rate':
                 self.db.execute('INSERT OR REPLACE INTO rates VALUES(?,?,?)', (chat, a['role'], a['per12']))
             elif a['type'] == 'save':

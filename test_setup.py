@@ -102,7 +102,7 @@ class SetupTests(unittest.TestCase):
                 patch('run_bot.time.time', return_value=100), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(ensure_owner(self.store, api, IDENTITY), 123)
         meta = dict(self.store.db.execute('SELECT key,value FROM meta'))
-        self.assertEqual(meta, {'bot_id': '987', 'owner': '123', 'offset': '6'})
+        self.assertEqual({k: meta[k] for k in ('bot_id', 'owner', 'offset')}, {'bot_id': '987', 'owner': '123', 'offset': '6'})
         self.assertEqual(self.store.db.execute('SELECT chat FROM settings').fetchone()[0], 123)
 
     def test_owner_survives_reopening_database_without_pairing_again(self):

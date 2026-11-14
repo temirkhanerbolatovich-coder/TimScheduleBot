@@ -28,7 +28,26 @@ def shift_pay(event, rates):
     role = event.get('role')
     if event.get('status') == 'covered' or role not in rates:
         return 0
-    return event['duration'] / 60 * rates[role] / 12
+    return event['duration'] / 60 * event.get('rate_per12', rates[role]) / 12
+
+
+def pay_state(event, now):
+    if event.get('status') == 'covered':
+        return 'excluded'
+    if event.get('status') in ('worked', 'extra'):
+        return 'confirmed'
+    return 'pending' if shift_end(event) <= now else 'planned'
+
+
+def pay_breakdown(events, rates, now):
+    totals = dict(confirmed=0.0, pending=0.0, planned=0.0)
+    for event in events:
+        state = pay_state(event, now)
+        if state in totals:
+            totals[state] += shift_pay(event, rates)
+    return ('Подтверждено: ' + money(totals['confirmed']) +
+            '\nОжидает отметки: ' + money(totals['pending']) +
+            '\nЗапланировано: ' + money(totals['planned']))
 
 
 def month_shifts(store, chat, year, month):
@@ -81,7 +100,6 @@ def month_report(store, chat, year, month, now):
     if not shifts:
         return head + '\n\nСмен в этом месяце нет.'
     by_role, by_type = {}, {}
-    done = ahead = 0.0
     unassigned = covered = extra = 0
     for e in shifts:
         status = e.get('status')
@@ -101,10 +119,6 @@ def month_report(store, chat, year, month, now):
         item[0] += 1
         item[1] += hours
         item[2] += pay
-        if shift_end(e) <= now:
-            done += pay
-        else:
-            ahead += pay
     lines = [head, '']
     total = 0.0
     for role in rates:
@@ -113,8 +127,7 @@ def month_report(store, chat, year, month, now):
             total += pay
             lines.append(f'🛡 <b>{escape(role)}</b>: {count} · {hours:g} ч · {money(pay)}')
     lines.append(f'\n💵 <b>Итого: {money(total)}</b>')
-    if ahead:
-        lines.append(f'Уже заработано: {money(done)}\nВпереди: {money(ahead)}')
+    lines.append(pay_breakdown(shifts, rates, now))
     lines.append('\nПо типам: ' + ', '.join(f'{name} — {count}' for name, count in by_type.items()))
     if extra:
         lines.append(f'➕ Замены (я заменил): {extra}')
@@ -135,10 +148,10 @@ def month_list(store, chat, year, month, now):
     for e in shifts:
         day = dt.date.fromisoformat(e['date'])
         status = e.get('status')
-        mark = STATUS_MARKS.get(status) or ('✅' if shift_end(e) <= now else '⏳')
+        mark = STATUS_MARKS.get(status) or ('❔' if shift_end(e) <= now else '⏳')
         pay = shift_pay(e, rates)
         role = e.get('role') or 'без роли'
         lines.append(f'{mark} {day:%d.%m} {SHORT_DAYS[day.weekday()]} · {SHORT_TYPE[e["title"]]} · {escape(role)} · '
                      f'{e["duration"] / 60:g} ч · ' + (money(pay) if pay else '—'))
-    lines.append('\n✅ прошла · ⏳ впереди · 🔁 меня заменили · ➕ я заменил')
+    lines.append('\n✅ подтверждено · ❔ ожидает отметки · ⏳ запланировано · 🔁 меня заменили · ➕ я заменил')
     return '\n'.join(lines)

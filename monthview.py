@@ -1,3 +1,4 @@
+from payroll import pay_breakdown
 """Календарь месяца сеткой кнопок и итог недели."""
 import calendar
 import datetime as dt
@@ -68,7 +69,8 @@ def week_summary(store, chat, monday, now):
     lines = [f'📊 <b>Итог недели</b>\n{monday:%d.%m} — {sunday:%d.%m.%Y}\n']
     if counted:
         lines.append(f'Смен: {len(counted)} · {hours:g} ч · ночных: {nights}')
-        lines.append(f'💵 Заработок: <b>{money(pay)}</b>')
+        lines.append(f'💵 Всего по сменам: <b>{money(pay)}</b>')
+        lines.append(pay_breakdown(counted, rates, now))
         if unassigned:
             lines.append(f'⚠️ Без роли: {unassigned} — не посчитаны')
     else:

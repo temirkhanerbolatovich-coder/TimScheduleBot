@@ -1,3 +1,4 @@
+from payroll import shift_end, pay_state
 """Personal Telegram planner. Python 3.11+, standard library only."""
 import datetime as dt
 from html import escape
@@ -125,6 +126,14 @@ class Bot:
         template = re.fullmatch(r'tpl:(back|t|r|d|o)(?::([a-z0-9]{1,5}))?(?::([ah]))?(?::(\d{4}-\d{2}-\d{2}))?', data)
         if template:
             return self.template_step(chat, *template.groups())
+        reprice = re.fullmatch(r'reprice:(\d{1,12})', data)
+        if reprice:
+            event = self.store.get(chat, int(reprice[1]))
+            if not event or not is_shift(event) or event.get('role') not in self.store.rates(chat):
+                raise ValueError('Выбери смену с ролью')
+            rate = self.store.rates(chat)[event['role']]
+            return self.preview(chat, f'Ставка этой смены: {money(event.get("rate_per12", rate))} → {money(rate)} за 12 ч',
+                                {'type': 'reprice', 'id': event['id'], 'role': event['role'], 'per12': rate})
         mark = re.fullmatch(r'shift:(w|c|x|a|h):(\d{1,12})', data)
         if mark:
             ident = int(mark[2])
@@ -394,9 +403,11 @@ class Bot:
                      for code, text in (('w', '✅ Отработал'), ('c', '🔁 Меня заменили'), ('x', '➕ Я заменил'))]
             if not event.get('role'):
                 marks.insert(0, [{'text': '🛡 ' + name, 'callback_data': f'shift:{code}:{ident}'} for code, name in (('a', 'Админ'), ('h', 'Помощник'))])
+            marks.append([{'text': '💰 Применить текущую ставку', 'callback_data': f'reprice:{ident}'}])
             keyboard[0:0] = marks
         keyboard.append([{'text': '📋 К списку', 'callback_data': 'nav:list'}])
-        return self.send(chat, label(event) + f'\n\n<i>Запись #{ident}</i>', keyboard, formatted=True)
+        rate_info = ('\n💰 Ставка: ' + money(event['rate_per12']) + ' за 12 ч') if 'rate_per12' in event else ''
+        return self.send(chat, label(event) + rate_info + f'\n\n<i>Запись #{ident}</i>', keyboard, formatted=True)
 
     def choose_occurrence(self, chat, event, operation):
         self.store.set_ui_state(chat)
@@ -571,6 +582,24 @@ class Bot:
         self.preview(chat, label(e), {'type': 'edit', 'id': ident, 'event': e})
 
     def scheduled(self, now):
+        # Ask only about recently ended shifts; avoid flooding on migration/restart.
+        for settings in self.store.db.execute('SELECT * FROM settings WHERE paused=0').fetchall():
+            chat = settings['chat']
+            for event in self.store.events(chat):
+                if not is_shift(event) or pay_state(event, now) != 'pending':
+                    continue
+                end = shift_end(event)
+                if not dt.timedelta(0) <= now - end <= dt.timedelta(hours=24):
+                    continue
+                key = (chat, 'shift_end:' + str(event['id']), end.isoformat())
+                if self.store.db.execute('SELECT 1 FROM deliveries WHERE chat=? AND kind=? AND day=?', key).fetchone():
+                    continue
+                self.send(chat, 'Смена закончилась. Подтверди результат или измени часы.\n' + label(event),
+                          [[{'text': '✅ Отработал', 'callback_data': f'shift:w:{event["id"]}'},
+                            {'text': '🔁 Меня заменили', 'callback_data': f'shift:c:{event["id"]}'}],
+                           [{'text': '✏️ Изменить часы', 'callback_data': f'act:edit:{event["id"]}'}]], formatted=True)
+                with self.store.db:
+                    self.store.db.execute('INSERT OR IGNORE INTO deliveries VALUES(?,?,?)', key)
         # Catch up today's summary after downtime, not a flood of historical messages.
         for s in self.store.db.execute('SELECT * FROM settings WHERE paused=0').fetchall():
             weekday, weekly_time = s['weekly'].split()

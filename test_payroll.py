@@ -59,8 +59,8 @@ class PayrollTests(unittest.TestCase):
         self.assertIn('Админ</b>: 5 · 66 ч · 66 000 тг', text)
         self.assertIn('Помощник</b>: 1 · 12 ч · 10 000 тг', text)
         self.assertIn('Итого: 76 000 тг', text)
-        self.assertIn('Уже заработано: 42 000 тг', text)  # 14.11 + 15.11 + 16.11 завершились к 17.11 12:00
-        self.assertIn('Впереди: 34 000 тг', text)
+        self.assertIn('Ожидает отметки: 42 000 тг', text)  # 14.11 + 15.11 + 16.11 завершились к 17.11 12:00
+        self.assertIn('Запланировано: 34 000 тг', text)
         self.assertIn('Ночь — 2', text)
 
     def test_marks_change_pay_and_support_undo(self):
@@ -92,7 +92,7 @@ class PayrollTests(unittest.TestCase):
         self.message('13 000 тг')
         self.callback(self.api.messages[-1]['keyboard'][0][0]['callback_data'])
         self.assertEqual(self.store.rates(123)['Админ'], 13000)
-        self.assertIn('Итого: 81 500 тг', month_report(self.store, 123, 2026, 11, NOW))
+        self.assertIn('Итого: 76 000 тг', month_report(self.store, 123, 2026, 11, NOW))
         self.message('/undo')
         self.assertIn('нечего', self.api.messages[-1]['text'])  # изменение ставки не входит в журнал записей
 
@@ -124,7 +124,7 @@ class PayrollTests(unittest.TestCase):
 
     def test_month_list_marks(self):
         text = month_list(self.store, 123, 2026, 11, NOW)
-        self.assertIn('✅ 14.11', text)
+        self.assertIn('❔ 14.11', text)
         self.assertIn('⏳ 19.11', text)
 
 
