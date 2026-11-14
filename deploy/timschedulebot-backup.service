@@ -1,0 +1,20 @@
+[Unit]
+Description=TimScheduleBot consistent database backup
+After=timschedulebot.service
+OnFailure=timschedulebot-alert@%n.service
+
+[Service]
+Type=oneshot
+User=timschedulebot
+Group=timschedulebot
+Environment=BOT_STATE_DIR=/var/lib/timschedulebot
+ExecStart=/usr/bin/python3 /opt/timschedulebot/backup_database.py
+StateDirectory=timschedulebot
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+MemoryMax=96M
+CPUQuota=10%

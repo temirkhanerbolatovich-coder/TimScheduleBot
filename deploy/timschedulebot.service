@@ -1,0 +1,34 @@
+[Unit]
+Description=TimScheduleBot personal Telegram planner
+Wants=network-online.target
+After=network-online.target
+OnFailure=timschedulebot-alert@%n.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=timschedulebot
+Group=timschedulebot
+WorkingDirectory=/opt/timschedulebot
+EnvironmentFile=/etc/timschedulebot.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONUTF8=1
+Environment=BOT_STATE_DIR=/var/lib/timschedulebot
+ExecStart=/usr/bin/python3 /opt/timschedulebot/run_bot.py --server
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=50
+StateDirectory=timschedulebot
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=96M
+CPUQuota=10%
+TasksMax=24
+
+[Install]
+WantedBy=multi-user.target

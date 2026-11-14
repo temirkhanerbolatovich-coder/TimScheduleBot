@@ -1,0 +1,12 @@
+[Unit]
+Description=TimScheduleBot failure alert for %i
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/timschedulebot.env
+Environment=BOT_STATE_DIR=/var/lib/timschedulebot
+ExecStart=/usr/bin/python3 /opt/timschedulebot/alert.py %i
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
